@@ -4,6 +4,16 @@
 
 把 GitHub Copilot 的额度暴露成标准 Anthropic / OpenAI 兼容接口，给 Claude Code、OpenClaw 等客户端直接用。
 
+## 5 分钟跑起来
+
+```bash
+git clone <repo-url> copilot-anthropic-proxy && cd copilot-anthropic-proxy
+cp .env.example .env && node server.mjs
+open http://127.0.0.1:4819   # 免登进 dashboard → device flow 拿 Copilot token → 生成 sk-proxy-xxx
+```
+
+完整步骤（device flow、Claude Code 接入、服务器部署、关掉本地免登）见 [`docs/SELF-HOST.md`](docs/SELF-HOST.md)。
+
 ## 功能
 
 **API 网关**

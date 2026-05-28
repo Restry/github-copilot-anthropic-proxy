@@ -7,14 +7,14 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 // ─── Module imports ──────────────────────────────────────────────────────────
-import { PORT, COPILOT_TOKEN_URL, DASHBOARD_PATH, PUBLIC_DIR, API_KEYS_PATH, DB_PATH, __DIR, fullError, mask } from "./lib/utils.mjs";
+import { PORT, COPILOT_TOKEN_URL, DASHBOARD_PATH, PUBLIC_DIR, API_KEYS_PATH, DB_PATH, __DIR, fullError, mask, cst } from "./lib/utils.mjs";
 import { loadApiKeys, saveApiKeys } from "./lib/api-keys.mjs";
 import { checkRateLimit, recordRequest, recordTokenUsage, getKeyUsageStats, getRateLimitCounters, pruneCounters } from "./lib/rate-limit.mjs";
 import { loadTokens, saveTokens, getTokenType, maskToken, clearCachedToken, getActiveGitHubToken, deriveBaseUrl, exchangeGitHubToken, getTokenByName, getToken, getCachedTokenInfo } from "./lib/tokens.mjs";
-import { checkApiKey, checkAdmin, checkUserSession, createUserSession, destroyUserSession, getUserSessionContext } from "./lib/auth.mjs";
+import { checkApiKey, checkAdmin, checkUserSession, createUserSession, destroyUserSession, getUserSessionContext, getInternalTestToken, LOCALHOST_BYPASS_ENABLED, isLoopbackRequest } from "./lib/auth.mjs";
 import { db, addLog, recordAdminAction, listAdminActions, recordWebhookNonce, sweepWebhookNonces } from "./lib/database.mjs";
 import { MODEL_REGISTRY, isClaudeModel, summarizeChatRequest, extractUsageNonStream, extractUsageStream, extractResponsesUsageNonStream, extractResponsesUsageStream, getModelRegistry } from "./lib/openai-protocol.mjs";
-import { listKeys, createKey, updateKey, disableKey, topupKey, resetFree, getKeyByHash, canAfford, isModelAllowed, chargeUsage, listLedger, countKeys, hashKey, createWxSignupKey, getKeyByOpenid, getKeyByInviteCode, addFreeQuota, checkV2RateLimit, recordV2Request, maybeSettleInvite } from "./lib/keys-v2.mjs";
+import { listKeys, createKey, updateKey, disableKey, hardDeleteKey, topupKey, resetFree, getKeyByHash, canAfford, isModelAllowed, chargeUsage, listLedger, countKeys, hashKey, newRawKey, createWxSignupKey, getKeyByOpenid, getKeyByInviteCode, addFreeQuota, checkV2RateLimit, recordV2Request, maybeSettleInvite } from "./lib/keys-v2.mjs";
 import { reloadPricing, getPricing, estimateCost, setModelPricing, deleteModelPricing, seedPricingFromConfig } from "./lib/pricing.mjs";
 import * as modelsReg from "./lib/models-registry.mjs";
 import { quotaPreflight, chargeFromLog, computeNextWindowReset, windowRolloverIfNeeded } from "./lib/quota-gate.mjs";
@@ -129,8 +129,25 @@ async function handleRequest(req, res) {
     || req.url.startsWith("/api/wx/payment-webhook")
     || req.url.startsWith("/api/pay/create");
   const __reqOrigin = (req.headers["origin"] || "").toString();
+  // Same-origin check: browsers send Origin even for same-origin fetches.
+  // If Origin host == request Host, treat as same-origin (no CORS needed).
+  const __reqHost = (req.headers["host"] || "").toString();
+  let __isSameOrigin = false;
+  if (__reqOrigin && __reqHost) {
+    try {
+      const u = new URL(__reqOrigin);
+      __isSameOrigin = u.host === __reqHost;
+    } catch {}
+  }
   if (__publicPath) {
     res.setHeader("Access-Control-Allow-Origin", "*");
+  } else if (__isSameOrigin || isLoopbackRequest(req)) {
+    // Same-origin browser fetch, or loopback caller — pass through without CORS headers.
+    if (__reqOrigin) {
+      res.setHeader("Access-Control-Allow-Origin", __reqOrigin);
+      res.setHeader("Vary", "Origin");
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+    }
   } else {
     const allowed = (process.env.CORS_ORIGINS || "")
       .split(",").map(s => s.trim()).filter(Boolean);
@@ -195,22 +212,27 @@ async function handleRequest(req, res) {
   const ADMIN_PATH = process.env.ADMIN_PATH || "/_a/ce233c02438f1ea04adaeb0c703468eb";
   if (req.method === "GET" && (pathname === ADMIN_PATH || pathname === ADMIN_PATH + "/" || pathname === ADMIN_PATH + "/index.html")) {
     const ctx = getUserSessionContext(req);
-    if (!ctx) {
+    if (!ctx && !isLoopbackRequest(req)) {
       res.writeHead(302, { Location: `/?next=${encodeURIComponent(ADMIN_PATH)}` });
       res.end();
       return;
     }
-    const row = getKeyByHash(ctx.keyHash);
-    if (!row || row.status === "disabled" || row.role !== "admin") {
+    const row = ctx ? getKeyByHash(ctx.keyHash) : null;
+    if (!isLoopbackRequest(req) && (!row || row.status === "disabled" || row.role !== "admin")) {
       res.writeHead(302, { Location: "/?err=not_admin" });
       res.end();
       return;
     }
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    res.end(dashboardHTML(row.name || ""));
+    res.end(dashboardHTML(row?.name || "localhost"));
     return;
   }
   if (req.method === "GET" && (pathname === "/" || pathname === "/index.html")) {
+    if (isLoopbackRequest(req)) {
+      res.writeHead(302, { Location: ADMIN_PATH });
+      res.end();
+      return;
+    }
     try {
       const html = readFileSync(join(PUBLIC_DIR, "user-dashboard.html"), "utf8").replace("__PORT__", PORT);
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
@@ -535,14 +557,16 @@ async function handleRequest(req, res) {
   }
 
   // ── Dashboard API auth guard ──────────────────────────────────────────────
-  // All /api/ routes below require an admin user_session.
+  // All /api/ routes below require an admin user_session (or loopback bypass).
   if (req.url.startsWith("/api/")) {
-    const ctx = getUserSessionContext(req);
-    const row = ctx ? getKeyByHash(ctx.keyHash) : null;
-    if (!row || row.status === "disabled" || row.role !== "admin") {
-      res.writeHead(401, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "Unauthorized — admin sign-in required" }));
-      return;
+    if (!isLoopbackRequest(req)) {
+      const ctx = getUserSessionContext(req);
+      const row = ctx ? getKeyByHash(ctx.keyHash) : null;
+      if (!row || row.status === "disabled" || row.role !== "admin") {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Unauthorized — admin sign-in required" }));
+        return;
+      }
     }
   }
 
@@ -633,11 +657,32 @@ async function handleRequest(req, res) {
     const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
 
     const logs = db.prepare(`SELECT l.id, l.ts, l.model, l.status, l.duration_ms, l.stream, l.input_tokens, l.output_tokens, l.preview, l.request_summary, l.error, l.token_name, l.api_key_name,
+      json_extract(l.request_body, '$.reasoning_effort') AS r_effort1,
+      json_extract(l.request_body, '$.reasoning.effort') AS r_effort2,
+      json_extract(l.request_body, '$.thinking.type') AS r_think_type,
+      json_extract(l.request_body, '$.thinking.budget_tokens') AS r_think_budget,
       w.nickname AS wx_nickname, w.avatar_url AS wx_avatar_url
       FROM logs l
       LEFT JOIN api_keys_v2 k ON k.key_hash = l.key_hash
       LEFT JOIN wx_users w ON w.openid = k.wx_openid
       ${whereClause ? whereClause.replace(/\b(ts|model|status|token_name|error|api_key_name|key_hash|id)\b/g, "l.$1") : ""} ORDER BY l.id DESC LIMIT ? OFFSET ?`).all(...params, limit, sinceId > 0 ? 0 : offset);
+
+    const buildReasoning = (row) => {
+      const eff = row.r_effort1 || row.r_effort2;
+      if (eff) return { kind: 'effort', value: String(eff) };
+      const t = row.r_think_type;
+      if (t === 'disabled' || !t) return null;
+      if (t === 'adaptive') return { kind: 'thinking', value: 'adaptive' };
+      if (t === 'enabled') {
+        const bt = row.r_think_budget;
+        return { kind: 'thinking', value: bt ? Math.round(bt / 1000) + 'k' : 'on' };
+      }
+      return { kind: 'thinking', value: String(t) };
+    };
+    for (const r of logs) {
+      r.reasoning = buildReasoning(r);
+      delete r.r_effort1; delete r.r_effort2; delete r.r_think_type; delete r.r_think_budget;
+    }
 
     // Skip expensive aggregate queries on incremental polls — stats are computed over the whole table.
     if (sinceId > 0) {
@@ -968,9 +1013,18 @@ async function handleRequest(req, res) {
       if (parsed.token_name) keyObj.token_name = parsed.token_name;
       else delete keyObj.token_name;
     }
+    let finalName = name;
+    if (parsed.name !== undefined && parsed.name !== name) {
+      const newName = String(parsed.name).trim();
+      if (!newName) { res.writeHead(400, { "Content-Type": "application/json" }); res.end('{"error":"name cannot be empty"}'); return; }
+      if (keys.some(k => k !== keyObj && k.name === newName)) { res.writeHead(409, { "Content-Type": "application/json" }); res.end('{"error":"key name already exists"}'); return; }
+      keyObj.name = newName;
+      try { db.prepare("UPDATE logs SET api_key_name = ? WHERE api_key_name = ?").run(newName, name); } catch (e) { console.error("[keys] rename log update failed:", e.message); }
+      finalName = newName;
+    }
     saveApiKeys(keys);
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ ok: true, name }));
+    res.end(JSON.stringify({ ok: true, name: finalName }));
     return;
   }
 
@@ -1512,11 +1566,19 @@ async function handleAdmin(req, res, adminCtx = { source: "unknown", adminKeyHas
     if (req.method === "PATCH") {
       const body = await readJsonBody(req);
       if (!body) return send(400, { error: "invalid JSON" });
-      const updated = updateKey(h, body);
+      let updated;
+      try { updated = updateKey(h, body); }
+      catch (e) { return send(400, { error: e.message, code: e.code }); }
       audit("key.update", h, { name: row.name, patch: body });
       return send(200, { ok: true, key: publicKeyView(updated) });
     }
     if (req.method === "DELETE") {
+      const hard = url.searchParams.get("hard") === "1";
+      if (hard) {
+        const gone = hardDeleteKey(h);
+        audit("key.hard_delete", h, { name: row.name });
+        return send(200, { ok: true, deleted: true, key: gone ? publicKeyView(gone) : null });
+      }
       const updated = disableKey(h);
       audit("key.disable", h, { name: row.name });
       return send(200, { ok: true, key: publicKeyView(updated) });
@@ -1696,6 +1758,103 @@ async function handleAdmin(req, res, adminCtx = { source: "unknown", adminKeyHas
       audit("models.delete", id, null);
       return send(200, { ok: true, id });
     }
+  }
+
+  // POST /admin/models/:id/test — ping a model end-to-end via local loopback
+  const tm = path.match(/^\/admin\/models\/([^/]+)\/test$/);
+  if (tm && req.method === "POST") {
+    const id = decodeURIComponent(tm[1]);
+    const all = modelsReg.listModels({ enabledOnly: false });
+    const model = all.find(m => m.id === id);
+    if (!model) return send(404, { error: "model not found" });
+
+    const vendor = String(model.vendor || model.provider || "").toLowerCase();
+    const isAnthropic = vendor.includes("anthropic") || /^claude-/i.test(id);
+    const isGoogle = vendor.includes("google") || /^gemini-/i.test(id);
+    // gpt-5.x new models only accessible via /v1/responses (reject /chat/completions)
+    const isResponses = /^gpt-5\.(2|2-codex|3-codex|4|4-mini|5)$/i.test(id);
+    const endpoint = isAnthropic ? "/v1/messages" : (isResponses ? "/v1/responses" : "/v1/chat/completions");
+    const body = isAnthropic
+      ? { model: id, max_tokens: 16, messages: [{ role: "user", content: "ping" }] }
+      : (isResponses
+          ? { model: id, input: "ping", max_output_tokens: 16 }
+          : { model: id, max_tokens: 16, messages: [{ role: "user", content: "ping" }] });
+
+    const t0 = Date.now();
+    try {
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), 30000);
+      const r = await fetch(`http://127.0.0.1:${PORT}${endpoint}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${getInternalTestToken()}`,
+          ...(isAnthropic ? { "anthropic-version": "2023-06-01" } : {}),
+        },
+        body: JSON.stringify(body),
+        signal: ac.signal,
+      }).finally(() => clearTimeout(timer));
+      const latency_ms = Date.now() - t0;
+      const txt = await r.text();
+      let parsed = null; try { parsed = JSON.parse(txt); } catch {}
+      if (!r.ok) {
+        const errMsg = parsed?.error?.message || parsed?.error || txt.slice(0, 200);
+        audit("models.test", id, { ok: false, status: r.status, latency_ms, vendor, endpoint });
+        return send(200, { ok: false, latency_ms, status: r.status, endpoint, error: String(errMsg).slice(0, 300) });
+      }
+      let sample = "";
+      if (isAnthropic) {
+        const block = (parsed?.content || []).find(b => b.type === "text");
+        sample = block?.text || "";
+      } else if (isResponses) {
+        // Responses API: output[] contains items; text lives in output[].content[].text
+        if (typeof parsed?.output_text === "string" && parsed.output_text) {
+          sample = parsed.output_text;
+        } else {
+          const items = parsed?.output || [];
+          for (const it of items) {
+            const parts = it?.content || [];
+            for (const p of parts) {
+              if (typeof p?.text === "string" && p.text) { sample = p.text; break; }
+            }
+            if (sample) break;
+          }
+        }
+      } else {
+        sample = parsed?.choices?.[0]?.message?.content || "";
+      }
+      sample = String(sample).trim().slice(0, 80);
+      audit("models.test", id, { ok: true, latency_ms, vendor, endpoint });
+      return send(200, { ok: true, latency_ms, endpoint, sample });
+    } catch (e) {
+      const latency_ms = Date.now() - t0;
+      audit("models.test", id, { ok: false, latency_ms, vendor, endpoint, error: e.message });
+      return send(200, { ok: false, latency_ms, endpoint, error: e.message });
+    }
+  }
+
+  // POST /admin/quickstart-key — find-or-create an unlimited local sk-proxy key
+  // for the just-completed device login. Returns { key, base_url }. Idempotent:
+  // re-uses an existing key named `quickstart-<token_name>` when present.
+  if (req.method === "POST" && path === "/admin/quickstart-key") {
+    const body = await readJsonBody(req);
+    const tokenName = String(body?.token_name || "").trim();
+    if (!tokenName) return send(400, { error: "token_name is required" });
+    const name = `quickstart-${tokenName}`;
+    const existing = db.prepare("SELECT key_hash, display_raw FROM api_keys_v2 WHERE name = ? LIMIT 1").get(name);
+    if (existing && existing.display_raw) {
+      return send(200, { key: existing.display_raw, base_url: `http://127.0.0.1:${PORT}`, reused: true });
+    }
+    if (existing && !existing.display_raw) {
+      return send(409, { error: "key name exists without recoverable raw value; delete it in Keys panel and retry" });
+    }
+    const raw = newRawKey();
+    const h = hashKey(raw);
+    db.prepare(`INSERT INTO api_keys_v2 (key_hash, key_prefix, name, role, balance_tokens, free_quota, free_used, free_reset_at, unlimited, allowed_models, status, token_name, created_at, note, source, invite_code, wx_openid, display_raw) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      h, raw.slice(0, 12), name, "user", 0, 0, 0, null, 1, null, "active", tokenName, cst(), "auto-created via device-login quickstart", "quickstart", null, null, raw,
+    );
+    audit("key.create.quickstart", h, { name, token_name: tokenName });
+    return send(201, { key: raw, base_url: `http://127.0.0.1:${PORT}`, reused: false });
   }
 
   // GET /admin/audit?limit=&offset=
@@ -2481,6 +2640,12 @@ server.listen(PORT, "127.0.0.1", () => {
   console.log(`   API keys:  ${apiKeysConfigured ? `${apiKeysConfigured} key(s) configured (${API_KEYS_PATH})` : "none — all requests allowed (add keys with --add-key)"}`);
   console.log(`   Dash auth: user_session (role=admin)`);
   console.log(`   TrustProxy: ${TRUST_PROXY ? "ON (X-Forwarded-For honored)" : "OFF (socket addr only)"}`);
+  if (LOCALHOST_BYPASS_ENABLED) {
+    console.log(`   ⚠️  Localhost bypass: ON — loopback callers (127.0.0.1/::1) get implicit admin.`);
+    console.log(`       Set DISABLE_LOCALHOST_BYPASS=1 before exposing this proxy to a network.`);
+  } else {
+    console.log(`   Localhost bypass: OFF (DISABLE_LOCALHOST_BYPASS set)`);
+  }
   // Periodic sweep: flip pending/submitted payments past expires_at to expired.
   const sweepHandle = setInterval(() => sweepExpiredPayments(), 60_000);
   if (typeof sweepHandle.unref === "function") sweepHandle.unref();
