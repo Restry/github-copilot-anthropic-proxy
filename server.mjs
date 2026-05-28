@@ -540,14 +540,16 @@ async function handleRequest(req, res) {
   }
 
   // ── Dashboard API auth guard ──────────────────────────────────────────────
-  // All /api/ routes below require an admin user_session.
+  // All /api/ routes below require an admin user_session (or loopback bypass).
   if (req.url.startsWith("/api/")) {
-    const ctx = getUserSessionContext(req);
-    const row = ctx ? getKeyByHash(ctx.keyHash) : null;
-    if (!row || row.status === "disabled" || row.role !== "admin") {
-      res.writeHead(401, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "Unauthorized — admin sign-in required" }));
-      return;
+    if (!isLoopbackRequest(req)) {
+      const ctx = getUserSessionContext(req);
+      const row = ctx ? getKeyByHash(ctx.keyHash) : null;
+      if (!row || row.status === "disabled" || row.role !== "admin") {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Unauthorized — admin sign-in required" }));
+        return;
+      }
     }
   }
 
