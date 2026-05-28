@@ -195,24 +195,24 @@ async function handleRequest(req, res) {
   const ADMIN_PATH = process.env.ADMIN_PATH || "/_a/ce233c02438f1ea04adaeb0c703468eb";
   if (req.method === "GET" && (pathname === ADMIN_PATH || pathname === ADMIN_PATH + "/" || pathname === ADMIN_PATH + "/index.html")) {
     const ctx = getUserSessionContext(req);
-    if (!ctx) {
+    if (!ctx && !isLoopbackRequest(req)) {
       res.writeHead(302, { Location: `/?next=${encodeURIComponent(ADMIN_PATH)}` });
       res.end();
       return;
     }
-    const row = getKeyByHash(ctx.keyHash);
-    if (!row || row.status === "disabled" || row.role !== "admin") {
+    const row = ctx ? getKeyByHash(ctx.keyHash) : null;
+    if (!isLoopbackRequest(req) && (!row || row.status === "disabled" || row.role !== "admin")) {
       res.writeHead(302, { Location: "/?err=not_admin" });
       res.end();
       return;
     }
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    res.end(dashboardHTML(row.name || ""));
+    res.end(dashboardHTML(row?.name || "localhost"));
     return;
   }
   if (req.method === "GET" && (pathname === "/" || pathname === "/index.html")) {
     if (isLoopbackRequest(req)) {
-      res.writeHead(302, { Location: "/admin" });
+      res.writeHead(302, { Location: ADMIN_PATH });
       res.end();
       return;
     }
