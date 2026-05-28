@@ -75,7 +75,12 @@
   .qs-copy { position:absolute; top:8px; right:8px; padding:4px 10px; background:var(--bg-3,#26282d); border:1px solid var(--border); color:var(--text-1); border-radius:5px; cursor:pointer; font-size:11px; }
   .qs-copy.ok { background:#3a8a3a; color:#fff; }
   .btn-admin { background:#c97a2a; border:none; color:#fff; padding:6px 12px; border-radius:6px; cursor:pointer; font-size:12px; font-weight:600; margin-right:6px; }
+  .lucide-icon { width:14px; height:14px; vertical-align:-2px; stroke-width:1.75; display:inline-block; }
+  .lucide-icon.lg { width:18px; height:18px; vertical-align:-3px; }
+  .lucide-icon.md { width:16px; height:16px; vertical-align:-3px; }
+  .tier-dot { display:inline-block; width:10px; height:10px; border-radius:50%; vertical-align:-1px; margin-right:6px; }
 </style>
+<script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
   <div id="login-screen" class="login-wrap" style="display:none">
@@ -118,7 +123,7 @@
           <span id="hdr-wx-nick" style="font-size:12px;color:var(--text-2);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
         </div>
         <span class="hdr-user" id="user-name"></span>
-        <button id="btn-admin" class="btn-admin" style="display:none" onclick="goAdmin()">🔧 管理后台</button>
+        <button id="btn-admin" class="btn-admin" style="display:none" onclick="goAdmin()"><i data-lucide="wrench" class="lucide-icon"></i> 管理后台</button>
         <button class="btn" onclick="userRefresh()">Refresh</button>
         <button class="btn" onclick="userLogout()">Logout</button>
       </div>
@@ -136,13 +141,13 @@
           <code id="invite-link" style="flex:1;padding:8px 10px;background:var(--bg-2);border:1px solid var(--border);border-radius:6px;font-size:12px;overflow:auto;white-space:nowrap">—</code>
           <button onclick="copyInviteLink(this)" style="padding:8px 14px;background:var(--bg-3);border:1px solid var(--border);color:var(--text-1);border-radius:6px;cursor:pointer;font-size:12px">复制邀请链接</button>
         </div>
-        <div style="font-size:11px;color:var(--text-4);margin-top:8px">💡 关注公众号「造悟者」回复"更多额度"获取额外奖励</div>
+        <div style="font-size:11px;color:var(--text-4);margin-top:8px"><i data-lucide="lightbulb" class="lucide-icon"></i> 关注公众号「造悟者」回复"更多额度"获取额外奖励</div>
       </div>
 
       <!-- 接入资源 -->
       <div class="user-card" id="resources-card">
         <div id="res-head" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none" onclick="resToggle()">
-          <span style="font-size:13px;font-weight:600;color:var(--text-1)">📚 接入资源</span>
+          <span style="font-size:13px;font-weight:600;color:var(--text-1)"><i data-lucide="book-open" class="lucide-icon md"></i> 接入资源</span>
           <span id="res-arrow" style="color:var(--text-3);font-size:12px">▼</span>
         </div>
         <div id="res-body" style="margin-top:12px">
@@ -188,15 +193,15 @@
       </div>
 
       <!-- 📦 套餐 -->
-      <div id="plan-card" class="user-card" style="display:none">
-        <div id="plan-head" style="font-size:13px;font-weight:600;color:var(--text-1);margin-bottom:10px">📦 套餐</div>
+      <div id="plan-card" class="user-card" style="display:none !important">
+        <div id="plan-head" style="font-size:13px;font-weight:600;color:var(--text-1);margin-bottom:10px"><i data-lucide="package" class="lucide-icon md"></i> 套餐</div>
         <div id="plan-body"></div>
       </div>
 
       <!-- 💰 计费倍率 -->
-      <div id="pricing-card" class="user-card">
+      <div id="pricing-card" class="user-card" style="display:none !important">
         <div id="pricing-head" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none" onclick="pricingToggle()">
-          <span style="font-size:13px;font-weight:600;color:var(--text-1)">💰 计费倍率</span>
+          <span style="font-size:13px;font-weight:600;color:var(--text-1)"><i data-lucide="wallet" class="lucide-icon md"></i> 计费倍率</span>
           <span id="pricing-arrow" style="color:var(--text-3);font-size:12px">▼</span>
         </div>
         <div id="pricing-body" style="margin-top:12px">
@@ -209,12 +214,12 @@
             <table class="user-logs">
               <thead><tr><th>档位</th><th>倍率(out)</th><th>模型</th></tr></thead>
               <tbody>
-                <tr><td>🟠 1M 上下文</td><td>10x</td><td>opus-4.7-1m-internal</td></tr>
-                <tr><td>🟡 旗舰</td><td>7.5x</td><td>claude-opus-4.7 · gpt-5.5</td></tr>
-                <tr><td>🟢 高端</td><td>3x</td><td>claude-opus-4.5 · claude-opus-4.6</td></tr>
-                <tr><td>🔵 标准</td><td>1x</td><td>claude-sonnet-4.5/4.6 · gemini-3.1-pro · gpt-5.2-codex</td></tr>
-                <tr><td>🟣 廉价</td><td>0.5x</td><td>claude-haiku-4.5 · gemini-3-flash</td></tr>
-                <tr><td style="color:#3dd68c">⚪ 入门</td><td style="color:#3dd68c">0.3x</td><td>gpt-5-mini</td></tr>
+                <tr><td><span class="tier-dot" style="background:#fb923c"></span>1M 上下文</td><td>10x</td><td>opus-4.7-1m-internal</td></tr>
+                <tr><td><span class="tier-dot" style="background:#fbbf24"></span>旗舰</td><td>7.5x</td><td>claude-opus-4.7 · gpt-5.5</td></tr>
+                <tr><td><span class="tier-dot" style="background:#22c55e"></span>高端</td><td>3x</td><td>claude-opus-4.5 · claude-opus-4.6</td></tr>
+                <tr><td><span class="tier-dot" style="background:#3b82f6"></span>标准</td><td>1x</td><td>claude-sonnet-4.5/4.6 · gemini-3.1-pro · gpt-5.2-codex</td></tr>
+                <tr><td><span class="tier-dot" style="background:#a855f7"></span>廉价</td><td>0.5x</td><td>claude-haiku-4.5 · gemini-3-flash</td></tr>
+                <tr><td style="color:#3dd68c"><span class="tier-dot" style="background:#e5e7eb"></span>入门</td><td style="color:#3dd68c">0.3x</td><td>gpt-5-mini</td></tr>
                 <tr><td style="color:var(--text-4)">未识别模型</td><td style="color:var(--text-4)">1x</td><td style="color:var(--text-4)">默认按 Sonnet 价计</td></tr>
               </tbody>
             </table>
@@ -228,17 +233,17 @@
       <div id="welcome-banner" class="user-card" style="display:none;border-color:#3a8a3a;background:linear-gradient(90deg,rgba(58,138,58,.08),transparent)">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
           <div>
-            <div style="font-size:14px;font-weight:600;color:var(--text-1)">🎉 欢迎！我们已为您创建专属 API Key 并赠送 30 万 token</div>
+            <div style="font-size:14px;font-weight:600;color:var(--text-1)"><i data-lucide="party-popper" class="lucide-icon md"></i> 欢迎！我们已为您创建专属 API Key 并赠送 30 万 token</div>
             <div style="font-size:12px;color:var(--text-3);margin-top:4px">额度一次性赠送（不重置）。在下方"Account"卡片中查看您的 Key。邀请好友扫码注册，双方各得 5 万额度。</div>
           </div>
           <button onclick="document.getElementById('welcome-banner').style.display='none'" style="background:transparent;border:1px solid var(--border);color:var(--text-3);padding:6px 12px;border-radius:6px;cursor:pointer">关闭</button>
         </div>
       </div>
 
-      <div id="upgrade-banner" class="user-card" style="display:none;border-color:#c97a2a;background:linear-gradient(90deg,rgba(201,122,42,.10),transparent)">
+      <div id="upgrade-banner" class="user-card" style="display:none !important;border-color:#c97a2a;background:linear-gradient(90deg,rgba(201,122,42,.10),transparent)">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
           <div>
-            <div style="font-size:14px;font-weight:600;color:var(--text-1)">⚠️ 赠送额度即将用完（剩余 <span id="upgrade-remain">—</span> tokens）</div>
+            <div style="font-size:14px;font-weight:600;color:var(--text-1)"><i data-lucide="alert-triangle" class="lucide-icon md" style="color:#fb923c"></i> 赠送额度即将用完（剩余 <span id="upgrade-remain">—</span> tokens）</div>
             <div style="font-size:12px;color:var(--text-3);margin-top:4px">充值 ¥9.9 送 50 万 token / ¥29 送 200 万 token，更多优惠请关注公众号「造悟者」回复"更多额度"。</div>
           </div>
           <div style="display:flex;gap:8px">
@@ -248,7 +253,7 @@
         </div>
       </div>
 
-      <div class="user-card" id="paid-card">
+      <div class="user-card" id="paid-card" style="display:none !important">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
           <div>
             <div style="font-size:11px;color:var(--text-4);text-transform:uppercase;letter-spacing:.05em">充值 token</div>
@@ -263,7 +268,7 @@
       </div>
 
       <!-- Payment modal -->
-      <div id="pay-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;align-items:center;justify-content:center">
+      <div id="pay-modal" style="display:none !important;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;align-items:center;justify-content:center">
         <div style="background:var(--bg-1,#1a1a1a);border:1px solid var(--border,#333);border-radius:8px;padding:24px;max-width:420px;width:92%;max-height:90vh;overflow:auto">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
             <div style="font-size:16px;font-weight:600" id="pay-title">扫码付款</div>
@@ -352,5 +357,6 @@
   <div id="chart-tip"></div>
   <script src="/shared-charts.js"></script>
   <script src="/user-dashboard.js"></script>
+  <script>if (window.lucide) lucide.createIcons();</script>
 </body>
 </html>

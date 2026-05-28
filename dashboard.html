@@ -9,6 +9,19 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300..700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/dashboard.css">
+<style>
+  .lucide-icon { width:14px; height:14px; vertical-align:-2px; stroke-width:1.75; display:inline-block; }
+  .lucide-icon.lg { width:18px; height:18px; vertical-align:-3px; }
+  .lucide-icon.md { width:16px; height:16px; vertical-align:-3px; }
+  .tier-dot { display:inline-block; width:10px; height:10px; border-radius:50%; vertical-align:-1px; margin-right:6px; }
+  .badge-reasoning { display:inline-block;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:600;text-transform:lowercase;letter-spacing:.3px;background:rgba(255,255,255,.06);color:var(--text-2);border:1px solid rgba(255,255,255,.08); }
+  .badge-reasoning.effort-low,.badge-reasoning.effort-minimal { color:var(--text-3); }
+  .badge-reasoning.effort-medium { color:var(--accent-bright);border-color:rgba(80,150,255,.3); }
+  .badge-reasoning.effort-high { color:var(--c-violet);border-color:rgba(180,120,255,.3); }
+  .badge-reasoning.thinking-adaptive { color:#22d3ee;border-color:rgba(34,211,238,.3); }
+  .badge-reasoning.thinking-on,.badge-reasoning.thinking-budget { color:var(--c-amber);border-color:rgba(245,158,11,.3); }
+</style>
+<script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
 
@@ -38,10 +51,9 @@
   <div class="top-tab active" data-tab="logs" onclick="switchMainTab('logs')">Logs</div>
   <div class="top-tab" data-tab="settings" onclick="switchMainTab('settings')">Settings</div>
   <div class="top-tab" data-tab="keys" onclick="switchMainTab('keys')">Keys</div>
-  <div class="top-tab" data-tab="usage" onclick="switchMainTab('usage')">Usage</div>
+  <div class="top-tab" data-tab="usage" onclick="switchMainTab('usage')">Analytics</div>
   <div class="top-tab" data-tab="models" onclick="switchMainTab('models')">Models</div>
   <div class="top-tab" data-tab="audit" onclick="switchMainTab('audit')">Audit</div>
-  <div class="top-tab" data-tab="charts" onclick="switchMainTab('charts')">Charts</div>
 </div>
 
 <div class="page">
@@ -98,6 +110,7 @@
             <th onclick="sortTable('token_name')">Token <span class="sort-arrow" data-col="token_name"></span></th>
             <th onclick="sortTable('api_key_name')">API Key <span class="sort-arrow" data-col="api_key_name"></span></th>
             <th onclick="sortTable('model')">Model <span class="sort-arrow" data-col="model"></span></th>
+            <th>Reasoning</th>
             <th onclick="sortTable('status')">Status <span class="sort-arrow" data-col="status"></span></th>
             <th onclick="sortTable('duration_ms')">Latency <span class="sort-arrow" data-col="duration_ms"></span></th>
             <th onclick="sortTable('tokens')">Tokens <span class="sort-arrow" data-col="tokens"></span></th>
@@ -136,41 +149,13 @@
       </div>
     </div>
 
-    <!-- API Key Management -->
+    <!-- API Keys moved to dedicated tab -->
     <div class="settings-card">
-      <div class="settings-card-title">API Key Management</div>
-      <div style="color:var(--text-4);font-size:11px;margin-bottom:12px">
-        Callers must provide a valid API key via <code style="color:var(--accent-bright)">x-api-key</code> header or <code style="color:var(--accent-bright)">Authorization: Bearer</code>. If no keys are configured, all requests are allowed.
+      <div class="settings-card-title">API Keys</div>
+      <div style="color:var(--text-4);font-size:12px;margin-bottom:12px">
+        API Keys are now managed in the <strong>Keys</strong> tab.
       </div>
-      <div id="apikey-list"></div>
-      <div class="token-add-row" style="flex-wrap:wrap;gap:8px">
-        <div style="display:flex;flex-direction:column;gap:2px;min-width:160px;flex:1">
-          <label style="font-size:10px;color:var(--text-4);font-weight:600;text-transform:uppercase;letter-spacing:0.3px">Name</label>
-          <input type="text" class="token-input" id="add-key-name" placeholder="e.g. hermes, cursor" style="width:100%">
-        </div>
-        <div style="display:flex;flex-direction:column;gap:2px;min-width:120px">
-          <label style="font-size:10px;color:var(--text-4);font-weight:600;text-transform:uppercase;letter-spacing:0.3px">Bound Token</label>
-          <select class="token-input" id="add-key-token" style="width:100%">
-            <option value="">Default (active)</option>
-          </select>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:2px;width:110px" title="Requests per minute. 0 = unlimited.">
-          <label style="font-size:10px;color:var(--text-4);font-weight:600;text-transform:uppercase;letter-spacing:0.3px">RPM</label>
-          <input type="number" class="token-input" id="add-key-rpm" placeholder="0" style="width:100%" min="0" value="0">
-        </div>
-        <div style="display:flex;flex-direction:column;gap:2px;width:110px" title="Requests per day. 0 = unlimited.">
-          <label style="font-size:10px;color:var(--text-4);font-weight:600;text-transform:uppercase;letter-spacing:0.3px">RPD</label>
-          <input type="number" class="token-input" id="add-key-rpd" placeholder="0" style="width:100%" min="0" value="0">
-        </div>
-        <div style="display:flex;flex-direction:column;gap:2px;width:120px" title="Tokens per minute (input + output). 0 = unlimited.">
-          <label style="font-size:10px;color:var(--text-4);font-weight:600;text-transform:uppercase;letter-spacing:0.3px">TPM</label>
-          <input type="number" class="token-input" id="add-key-tpm" placeholder="0" style="width:100%" min="0" value="0">
-        </div>
-        <div style="display:flex;flex-direction:column;gap:2px;justify-content:flex-end">
-          <label style="font-size:10px;color:transparent">&nbsp;</label>
-          <button class="btn" onclick="addApiKey()">Generate Key</button>
-        </div>
-      </div>
+      <button class="btn on" onclick="switchMainTab('keys')">Open Keys tab →</button>
     </div>
 
   </div>
@@ -268,6 +253,19 @@
 
     <div class="charts charts-2col">
       <div class="chart-card">
+        <div class="chart-title">Requests by Hour</div>
+        <div class="chart-scroll" id="chart-scroll">
+          <canvas class="chart-canvas" id="chart-hourly"></canvas>
+        </div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Daily Cost</div>
+        <canvas class="chart-canvas" id="chart-daily-cost" style="width:100%;height:200px"></canvas>
+      </div>
+    </div>
+
+    <div class="charts charts-2col" style="margin-top:12px">
+      <div class="chart-card">
         <div class="chart-title">Top Keys (by cost)</div>
         <div class="tbl-container" style="max-height:340px;overflow:auto">
           <table class="tbl"><thead><tr><th>Name</th><th>Reqs</th><th>Input</th><th>Output</th><th>Cost</th></tr></thead><tbody id="ov-bykey"><tr><td colspan="5" style="text-align:center;color:var(--text-4)">—</td></tr></tbody></table>
@@ -282,10 +280,8 @@
     </div>
 
     <div class="chart-card" style="margin-top:12px">
-      <div class="chart-title">Daily Cost</div>
-      <div class="tbl-container" style="max-height:300px;overflow:auto">
-        <table class="tbl"><thead><tr><th>Day</th><th>Requests</th><th>Cost</th><th style="width:60%">Trend</th></tr></thead><tbody id="ov-daily"><tr><td colspan="4" style="text-align:center;color:var(--text-4)">—</td></tr></tbody></table>
-      </div>
+      <div class="chart-title">Token Usage</div>
+      <div class="share-list" id="chart-tokens"></div>
     </div>
   </div>
 
@@ -294,10 +290,10 @@
     <div class="settings-card">
       <div class="settings-card-title">Models Registry (synced from Copilot upstream /models)</div>
       <div style="color:var(--text-4);font-size:11px;margin-bottom:12px">
-        模型列表 + pricing 都存在数据库里。点 "🔄 刷新模型列表" 从 Copilot 上游 <code style="color:var(--accent-bright)">/models</code> 拉取最新清单，新增模型默认 enabled、走默认 pricing。改完单元格立即生效。
+        模型列表 + pricing 都存在数据库里。点 "<i data-lucide="refresh-cw" class="lucide-icon"></i> 刷新模型列表" 从 Copilot 上游 <code style="color:var(--accent-bright)">/models</code> 拉取最新清单，新增模型默认 enabled、走默认 pricing。改完单元格立即生效。
       </div>
       <div class="bar"><div class="bar-row-1">
-        <button class="btn on" id="models-sync-btn" onclick="syncModelsFromUpstream()">🔄 刷新模型列表</button>
+        <button class="btn on" id="models-sync-btn" onclick="syncModelsFromUpstream()"><i data-lucide="refresh-cw" class="lucide-icon"></i> 刷新模型列表</button>
         <button class="btn" onclick="loadModels()">Refresh</button>
         <span style="flex:1"></span>
         <span style="color:var(--text-4);font-size:11px" id="models-last-synced"></span>
@@ -335,35 +331,6 @@
     </div>
   </div>
 
-  <!-- ==================== TAB: CHARTS ==================== -->
-  <div class="tab-content" id="tab-charts">
-
-    <div class="charts">
-      <div class="chart-card">
-        <div class="chart-title">Requests by Hour</div>
-        <div class="chart-scroll" id="chart-scroll">
-          <canvas class="chart-canvas" id="chart-hourly"></canvas>
-        </div>
-      </div>
-      <div class="chart-card">
-        <div class="chart-title">Model Share</div>
-        <div class="share-list" id="chart-models"></div>
-      </div>
-    </div>
-
-    <div class="charts charts-2col">
-      <div class="chart-card">
-        <div class="chart-title">API Key Usage</div>
-        <div class="share-list" id="chart-apikeys"></div>
-      </div>
-      <div class="chart-card">
-        <div class="chart-title">Token Usage</div>
-        <div class="share-list" id="chart-tokens"></div>
-      </div>
-    </div>
-
-  </div>
-
 </div>
 
 <!-- Detail Drawer (global, not affected by tabs) -->
@@ -375,39 +342,6 @@
     </div>
     <div class="drawer-tabs" id="drawer-tabs"></div>
     <div class="drawer-body" id="drawer-body"></div>
-  </div>
-</div>
-
-<!-- Rate Limit Edit Modal -->
-<div class="modal-overlay" id="rl-modal" onclick="if(event.target===this)closeRLModal()">
-  <div class="modal-box">
-    <div class="modal-title" id="rl-modal-title">Edit Rate Limits</div>
-    <input type="hidden" id="rl-modal-key">
-    <div class="modal-field">
-      <label>Bound Token</label>
-      <select class="token-input" id="rl-modal-token" style="width:100%">
-        <option value="">Default (active)</option>
-      </select>
-    </div>
-    <div class="modal-field">
-      <label>RPM (Requests Per Minute)</label>
-      <input type="number" id="rl-modal-rpm" min="0" value="0">
-      <div class="hint">0 = unlimited</div>
-    </div>
-    <div class="modal-field">
-      <label>RPD (Requests Per Day)</label>
-      <input type="number" id="rl-modal-rpd" min="0" value="0">
-      <div class="hint">0 = unlimited</div>
-    </div>
-    <div class="modal-field">
-      <label>TPM (Tokens Per Minute)</label>
-      <input type="number" id="rl-modal-tpm" min="0" value="0">
-      <div class="hint">Input + output tokens combined. 0 = unlimited</div>
-    </div>
-    <div class="modal-actions">
-      <button class="btn" onclick="closeRLModal()">Cancel</button>
-      <button class="btn on" onclick="saveRLModal()">Save</button>
-    </div>
   </div>
 </div>
 
@@ -470,6 +404,57 @@
   </div>
 </div>
 
+<!-- Manage Key Modal -->
+<div class="modal-overlay" id="v2-manage-modal" onclick="if(event.target===this)v2CloseManageModal()">
+  <div class="modal-box" style="width:520px;max-height:90vh;overflow:auto">
+    <div class="modal-title"><i data-lucide="settings" class="lucide-icon lg"></i> Manage Key</div>
+    <input type="hidden" id="v2m-hash">
+    <div class="modal-field"><label>Key prefix</label><div id="v2m-prefix" style="font-family:monospace;color:var(--text-2);font-size:12px"></div></div>
+    <div class="modal-field"><label>Name</label><input type="text" id="v2m-name" placeholder="key name"></div>
+    <div class="modal-field"><label>Note</label><input type="text" id="v2m-note" placeholder=""></div>
+    <div class="modal-field"><label>Role</label>
+      <select id="v2m-role"><option value="user">user</option><option value="admin">admin</option></select>
+    </div>
+
+    <div class="modal-field" style="border-top:1px solid var(--border);padding-top:10px;margin-top:12px">
+      <label>Free quota (used / total)</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <div id="v2m-free-display" style="flex:1;color:var(--text-2);font-size:12px"></div>
+        <button class="btn" type="button" onclick="v2mResetFree()">Reset Free</button>
+      </div>
+    </div>
+
+    <div class="modal-field">
+      <label>Unlimited</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <div id="v2m-unlim-display" style="flex:1;color:var(--text-2);font-size:12px"></div>
+        <button class="btn" type="button" id="v2m-unlim-btn" onclick="v2mToggleUnlim()">Toggle</button>
+      </div>
+    </div>
+
+    <div class="modal-field">
+      <label>Plan (包月套餐)</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <div id="v2m-plan-display" style="flex:1;color:var(--text-2);font-size:12px"></div>
+        <button class="btn" type="button" id="v2m-plan-btn" onclick="v2mPlanAction()"></button>
+      </div>
+    </div>
+
+    <div class="modal-field" style="border-top:1px solid var(--c-red);padding-top:10px;margin-top:14px">
+      <label style="color:var(--c-red)">Danger zone</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <div style="flex:1;color:var(--text-4);font-size:11px">Permanently delete this key and its usage ledger. Cannot be undone.</div>
+        <button class="btn" type="button" style="color:var(--c-red);border-color:var(--c-red)" onclick="v2mHardDelete()"><i data-lucide="trash-2" class="lucide-icon"></i> Delete Key</button>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn" onclick="v2CloseManageModal()">Cancel</button>
+      <button class="btn on" onclick="v2SubmitManageModal()">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- Device Login Modal -->
 <div class="modal-overlay" id="device-modal" onclick="if(event.target===this)closeDeviceModal()">
   <div class="modal-box" style="width:400px">
@@ -503,10 +488,39 @@
       </div>
     </div>
     <div id="device-step-done" style="display:none">
-      <div style="text-align:center;padding:16px 0">
-        <div style="color:var(--green);font-size:16px;font-weight:600;margin-bottom:8px">Login Successful!</div>
+      <div style="text-align:center;padding:12px 0 8px">
+        <div style="color:var(--green);font-size:16px;font-weight:600;margin-bottom:6px">Login Successful!</div>
         <div style="font-size:12px;color:var(--text-2)">Token saved as <strong id="device-done-name"></strong></div>
         <div style="font-size:11px;color:var(--text-4);margin-top:4px">GitHub user: <span id="device-done-user"></span></div>
+      </div>
+      <div id="device-quickstart" style="margin-top:8px;padding-top:12px;border-top:1px solid var(--border)">
+        <div style="font-size:11px;color:var(--text-4);text-align:center;margin-bottom:10px">━━━ 快速接入 ━━━</div>
+        <div id="device-quickstart-loading" style="text-align:center;font-size:12px;color:var(--text-3);padding:8px 0">Provisioning local key…</div>
+        <div id="device-quickstart-body" style="display:none">
+          <div style="margin-bottom:10px">
+            <div style="font-size:11px;color:var(--text-3);margin-bottom:4px">Your API Key</div>
+            <div style="display:flex;gap:6px;align-items:center">
+              <code id="device-qs-key" style="flex:1;font-size:11px;background:var(--bg-2);padding:6px 8px;border-radius:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></code>
+              <button class="btn" data-qs-copy="key" style="padding:4px 10px;font-size:11px">Copy</button>
+            </div>
+          </div>
+          <div style="margin-bottom:10px">
+            <div style="font-size:11px;color:var(--text-3);margin-bottom:4px">📦 Claude Code <span style="color:var(--text-4)">（推荐）</span></div>
+            <div style="display:flex;gap:6px;align-items:flex-start">
+              <pre id="device-qs-claude" style="flex:1;margin:0;font-size:10.5px;background:var(--bg-2);padding:6px 8px;border-radius:4px;white-space:pre-wrap;word-break:break-all;line-height:1.4"></pre>
+              <button class="btn" data-qs-copy="claude" style="padding:4px 10px;font-size:11px">Copy</button>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--text-3);margin-bottom:4px">📦 Codex / OpenAI 兼容</div>
+            <div style="display:flex;gap:6px;align-items:flex-start">
+              <pre id="device-qs-openai" style="flex:1;margin:0;font-size:10.5px;background:var(--bg-2);padding:6px 8px;border-radius:4px;white-space:pre-wrap;word-break:break-all;line-height:1.4"></pre>
+              <button class="btn" data-qs-copy="openai" style="padding:4px 10px;font-size:11px">Copy</button>
+            </div>
+          </div>
+          <div id="device-qs-toast" style="display:none;text-align:center;font-size:11px;color:var(--green);margin-top:8px">Copied!</div>
+        </div>
+        <div id="device-quickstart-err" style="display:none;font-size:11px;color:var(--red);text-align:center;padding:8px 0"></div>
       </div>
       <div class="modal-actions">
         <button class="btn on" onclick="closeDeviceModal()">Done</button>
@@ -526,5 +540,6 @@ window.signOut = async () => {
 };
 </script>
 <script src="/dashboard.js"></script>
+<script>if (window.lucide) lucide.createIcons();</script>
 </body>
 </html>

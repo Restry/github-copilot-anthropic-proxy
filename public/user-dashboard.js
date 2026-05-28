@@ -460,18 +460,18 @@ async function loadMe() {
   }
   document.getElementById('q-reset').textContent = m.free_reset_at || (m.source === 'wx_signup' ? '不重置（一次性赠送）' : '—');
 
-  // Upgrade banner: show when remaining < 10% of free_quota
-  const banner = document.getElementById('upgrade-banner');
-  if (banner) {
-    const remain = Math.max(0, (m.free_quota || 0) - (m.free_used || 0));
-    const ratio = m.free_quota ? remain / m.free_quota : 1;
-    const lowRemain = !m.unlimited && m.free_quota > 0 && ratio < 0.1;
-    banner.style.display = lowRemain ? '' : 'none';
-    if (lowRemain) {
-      const remainEl = document.getElementById('upgrade-remain');
-      if (remainEl) remainEl.textContent = SC.fmt(remain);
-    }
-  }
+  // Upgrade banner hidden for normal users (paid entries disabled).
+  // const banner = document.getElementById('upgrade-banner');
+  // if (banner) {
+  //   const remain = Math.max(0, (m.free_quota || 0) - (m.free_used || 0));
+  //   const ratio = m.free_quota ? remain / m.free_quota : 1;
+  //   const lowRemain = !m.unlimited && m.free_quota > 0 && ratio < 0.1;
+  //   banner.style.display = lowRemain ? '' : 'none';
+  //   if (lowRemain) {
+  //     const remainEl = document.getElementById('upgrade-remain');
+  //     if (remainEl) remainEl.textContent = SC.fmt(remain);
+  //   }
+  // }
 
   // Invite section
   const inviteCard = document.getElementById('invite-card');
@@ -505,6 +505,7 @@ async function loadMe() {
 let _planResetTimer = null;
 
 async function loadPlan(meData) {
+  return; // HIDDEN: 付费入口已隐藏
   const card = document.getElementById('plan-card');
   const body = document.getElementById('plan-body');
   if (!card || !body) return;
@@ -845,6 +846,7 @@ init();
 let _payState = { payOrderId: null, pollTimer: null };
 
 window.startPayment = async function(pkgId) {
+  return; // HIDDEN: 付费入口已隐藏
   let r;
   try {
     r = await fetch('/api/pay/create', {
@@ -869,7 +871,7 @@ window.startPayment = async function(pkgId) {
   document.getElementById('pay-status').textContent = 'pending';
   document.getElementById('pay-msg').textContent = '';
   document.getElementById('pay-claim-btn').disabled = false;
-  document.getElementById('pay-modal').style.display = 'flex';
+  // document.getElementById('pay-modal').style.display = 'flex'; // HIDDEN: 付费入口已隐藏
   _startPaymentPoll();
 };
 

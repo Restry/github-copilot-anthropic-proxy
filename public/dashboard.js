@@ -37,10 +37,9 @@ function switchMainTab(tab) {
   document.querySelectorAll('.tab-content').forEach(el => {
     el.classList.toggle('active', el.id === 'tab-' + tab);
   });
-  if (tab === 'charts' && !chartLoaded) loadCharts();
-  if (tab === 'settings') { loadTokenData(); loadApiKeys(); }
+  if (tab === 'settings') { loadTokenData(); }
   if (tab === 'keys') { v2LoadKeys(); }
-  if (tab === 'usage') { loadOverview(); }
+  if (tab === 'usage') { loadOverview(); loadCharts(); }
   if (tab === 'models') { loadModels(); }
   if (tab === 'audit') { loadAudit(); }
 }
@@ -81,6 +80,40 @@ function fmt(n) {
   return n.toLocaleString();
 }
 
+function extractReasoning(reqBodyStr) {
+  if (!reqBodyStr) return null;
+  let b;
+  try { b = JSON.parse(reqBodyStr); } catch { return null; }
+  const effort = b.reasoning_effort ?? b.reasoning?.effort;
+  if (effort) return { kind: 'effort', value: String(effort) };
+  if (b.thinking) {
+    if (b.thinking.type === 'disabled') return null;
+    if (b.thinking.type === 'adaptive') return { kind: 'thinking', value: 'adaptive' };
+    if (b.thinking.type === 'enabled') {
+      const bt = b.thinking.budget_tokens;
+      return { kind: 'thinking', value: bt ? `${(bt/1000).toFixed(0)}k` : 'on' };
+    }
+    return { kind: 'thinking', value: String(b.thinking.type) };
+  }
+  return null;
+}
+
+function reasoningCell(l) {
+  const r = l.reasoning ?? extractReasoning(l.request_body);
+  if (!r) return '<td></td>';
+  let cls;
+  if (r.kind === 'effort') {
+    cls = `effort-${r.value.toLowerCase()}`;
+  } else if (r.value === 'adaptive') {
+    cls = 'thinking-adaptive';
+  } else if (r.value === 'on') {
+    cls = 'thinking-on';
+  } else {
+    cls = 'thinking-budget';
+  }
+  return `<td><span class="badge-reasoning ${cls}">${esc(r.value)}</span></td>`;
+}
+
 async function refresh() {
   const params = new URLSearchParams();
   if (filters.from) params.set('from', filters.from.replace('T', ' '));
@@ -116,7 +149,7 @@ async function refresh() {
   const tbody = document.getElementById('log-body');
 
   if (!data.length) {
-    tbody.innerHTML = `<tr><td colspan="9">
+    tbody.innerHTML = `<tr><td colspan="10">
       <div class="empty-wrap">
         <div class="empty-ring"></div>
         <div class="empty-text">No requests yet</div>
@@ -142,6 +175,7 @@ async function refresh() {
       <td class="c-token">${esc(l.token_name || '-')}</td>
       <td class="c-token">${userCell(l)}</td>
       <td class="c-model">${esc(l.model || '-')}</td>
+      ${reasoningCell(l)}
       <td><span class="c-status ${sc}">${l.status}</span></td>
       <td class="c-dur">${l.duration_ms ? l.duration_ms + 'ms' : '-'}</td>
       <td class="c-tok">${tok}</td>
@@ -157,7 +191,7 @@ function renderLogsTable(isFirst) {
   const tbody = document.getElementById('log-body');
 
   if (isFirst && !logsData.length) {
-    tbody.innerHTML = `<tr><td colspan="9">
+    tbody.innerHTML = `<tr><td colspan="10">
       <div class="empty-wrap">
         <div class="empty-ring"></div>
         <div class="empty-text">No requests yet</div>
@@ -199,6 +233,7 @@ function rowHTML(l) {
     <td class="c-token">${esc(l.token_name || '-')}</td>
     <td class="c-token">${userCell(l)}</td>
     <td class="c-model">${esc(l.model || '-')}</td>
+    ${reasoningCell(l)}
     <td><span class="c-status ${sc}">${l.status}</span></td>
     <td class="c-dur">${l.duration_ms ? l.duration_ms + 'ms' : '-'}</td>
     <td class="c-tok">${tok}</td>
@@ -440,7 +475,6 @@ function closeDrawer(e) {
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     if (document.getElementById('device-modal').classList.contains('open')) closeDeviceModal();
-    else if (document.getElementById('rl-modal').classList.contains('open')) closeRLModal();
     else closeDrawer();
   }
 });
@@ -664,6 +698,7 @@ document.getElementById('chart-hourly').addEventListener('mouseleave', hideTip);
 
 function drawModelShare(data) {
   const el = document.getElementById('chart-models');
+  if (!el) return;
   if (!data.length) { el.innerHTML = '<span style="color:var(--text-4);font-size:11px">No data</span>'; return; }
 
   el.innerHTML = data.slice(0, 5).map((m, i) => {
@@ -748,15 +783,6 @@ async function loadTokenData() {
     tokenData = await r.json();
     renderTokenSection();
     updateTokenFilter();
-    // Populate token dropdowns
-    const selectors = [document.getElementById('add-key-token'), document.getElementById('rl-modal-token')];
-    for (const sel of selectors) {
-      if (!sel) continue;
-      const prev = sel.value;
-      sel.innerHTML = '<option value="">Default (active)</option>' +
-        tokenData.map(t => `<option value="${esc(t.name)}">${esc(t.name)}${t.active ? ' *' : ''}</option>`).join('');
-      sel.value = prev;
-    }
   } catch (e) { console.warn('token load failed', e); }
 }
 
@@ -864,152 +890,7 @@ async function testToken(name) {
   btn.disabled = false;
 }
 
-// ── API Key Management ──
-let apiKeyData = [];
-
-function renderUsageBar(label, used, limit) {
-  if (!limit || limit === 0) return '';
-  const pct = Math.min(100, Math.round((used / limit) * 100));
-  const cls = pct > 95 ? 'crit' : pct > 80 ? 'warn' : '';
-  return `<div class="rl-bar-wrap">
-    <span class="rl-bar-label">${label}</span>
-    <div class="rl-bar-track"><div class="rl-bar-fill ${cls}" style="width:${pct}%"></div></div>
-    <span class="rl-bar-val">${fmt(used)} / ${fmt(limit)}</span>
-  </div>`;
-}
-
-async function loadApiKeys() {
-  try {
-    const r = await fetch('/api/keys');
-    apiKeyData = await r.json();
-    const list = document.getElementById('apikey-list');
-    if (!apiKeyData.length) {
-      list.innerHTML = '<div style="color:var(--text-4);font-size:11px;padding:6px 0">No API keys configured — all requests are allowed without authentication.</div>';
-      return;
-    }
-    list.innerHTML = apiKeyData.map(k => {
-      const safeName = esc(k.name).replace(/'/g, "\\'");
-      const tokenBind = k.token_name ? `<span style="color:var(--accent-bright)">@ ${esc(k.token_name)}</span>` : '<span style="color:var(--text-4)">default</span>';
-      const rl = k.rate_limit || {};
-      const usage = k.usage || { rpm: {used:0,limit:0}, rpd: {used:0,limit:0}, tpm: {used:0,limit:0} };
-
-      let rlInfo = '';
-      if (rl.rpm || rl.rpd || rl.tpm) {
-        const parts = [];
-        if (rl.rpm) parts.push(`${rl.rpm} RPM`);
-        if (rl.rpd) parts.push(`${rl.rpd} RPD`);
-        if (rl.tpm) parts.push(`${fmt(rl.tpm)} TPM`);
-        rlInfo = `<span style="color:var(--amber);font-size:10px">${parts.join(' / ')}</span>`;
-      } else {
-        rlInfo = '<span style="color:var(--text-4);font-size:10px">No limits</span>';
-      }
-
-      const usageBars = renderUsageBar('RPM', usage.rpm.used, usage.rpm.limit)
-        + renderUsageBar('RPD', usage.rpd.used, usage.rpd.limit)
-        + renderUsageBar('TPM', usage.tpm.used, usage.tpm.limit);
-
-      return `<div class="token-list-item" style="flex-wrap:wrap">
-        <div class="token-info" style="min-width:200px">
-          <span class="token-name">${esc(k.name)}</span>
-          <span class="token-detail">${esc(k.masked)} &middot; ${tokenBind} &middot; ${rlInfo}</span>
-          ${usageBars ? `<div style="margin-top:4px;width:100%">${usageBars}</div>` : ''}
-        </div>
-        <div class="token-actions">
-          <button class="btn" onclick="openRLModal('${safeName}')" style="padding:3px 8px;font-size:10px">Edit</button>
-          <button class="btn" onclick="copyApiKey('${safeName}')" style="padding:3px 8px;font-size:10px">Copy</button>
-          <button class="btn" onclick="deleteApiKey('${safeName}')" style="padding:3px 8px;font-size:10px;color:var(--red)">Del</button>
-        </div>
-      </div>`;
-    }).join('');
-  } catch (e) { console.error('Failed to load API keys:', e); }
-}
-
-async function addApiKey() {
-  const nameEl = document.getElementById('add-key-name');
-  const tokenEl = document.getElementById('add-key-token');
-  const name = nameEl.value.trim();
-  if (!name) { alert('Please enter an API key name'); return; }
-  const rpm = Math.max(0, parseInt(document.getElementById('add-key-rpm').value) || 0);
-  const rpd = Math.max(0, parseInt(document.getElementById('add-key-rpd').value) || 0);
-  const tpm = Math.max(0, parseInt(document.getElementById('add-key-tpm').value) || 0);
-  const payload = {
-    name,
-    rate_limit: { rpm, rpd, tpm }
-  };
-  if (tokenEl.value) payload.token_name = tokenEl.value;
-  try {
-    const r = await fetch('/api/keys', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    const data = await r.json();
-    if (!r.ok) { alert(data.error || 'Failed to create key'); return; }
-    nameEl.value = '';
-    tokenEl.value = '';
-    document.getElementById('add-key-rpm').value = '0';
-    document.getElementById('add-key-rpd').value = '0';
-    document.getElementById('add-key-tpm').value = '0';
-    const copyOk = await navigator.clipboard.writeText(data.key).then(() => true).catch(() => false);
-    alert(`API Key created!\n\nName: ${data.name}\nKey: ${data.key}\n\n${copyOk ? 'Copied to clipboard!' : 'Please copy it now — it won\'t be shown again.'}`);
-    await loadApiKeys();
-  } catch (e) { alert('Failed to create key: ' + e.message); }
-}
-
-async function deleteApiKey(name) {
-  if (!confirm(`Delete API key "${name}"?`)) return;
-  try {
-    await fetch(`/api/keys/${encodeURIComponent(name)}`, { method: 'DELETE' });
-    await loadApiKeys();
-  } catch (e) { alert('Failed to delete key: ' + e.message); }
-}
-
-async function copyApiKey(name) {
-  try {
-    await navigator.clipboard.writeText(name);
-    alert(`Key name "${name}" copied. Note: for security, the full key is only shown once at creation.`);
-  } catch { alert('Copy failed'); }
-}
-
-// ── Rate Limit Modal ──
-function openRLModal(keyName) {
-  const k = apiKeyData.find(k => k.name === keyName);
-  if (!k) return;
-  const rl = k.rate_limit || {};
-  document.getElementById('rl-modal-key').value = keyName;
-  document.getElementById('rl-modal-title').textContent = `Edit: ${keyName}`;
-  document.getElementById('rl-modal-rpm').value = rl.rpm || 0;
-  document.getElementById('rl-modal-rpd').value = rl.rpd || 0;
-  document.getElementById('rl-modal-tpm').value = rl.tpm || 0;
-  document.getElementById('rl-modal-token').value = k.token_name || '';
-  document.getElementById('rl-modal').classList.add('open');
-}
-
-function closeRLModal() {
-  document.getElementById('rl-modal').classList.remove('open');
-}
-
-async function saveRLModal() {
-  const keyName = document.getElementById('rl-modal-key').value;
-  const payload = {
-    rate_limit: {
-      rpm: Math.max(0, parseInt(document.getElementById('rl-modal-rpm').value) || 0),
-      rpd: Math.max(0, parseInt(document.getElementById('rl-modal-rpd').value) || 0),
-      tpm: Math.max(0, parseInt(document.getElementById('rl-modal-tpm').value) || 0),
-    },
-    token_name: document.getElementById('rl-modal-token').value || null,
-  };
-  try {
-    const r = await fetch(`/api/keys/${encodeURIComponent(keyName)}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    if (!r.ok) { const d = await r.json(); alert(d.error || 'Failed'); return; }
-    closeRLModal();
-    await loadApiKeys();
-  } catch (e) { alert('Failed: ' + e.message); }
-}
+// ── API Key Management moved to Keys tab (v2). See v2*Keys functions below. ──
 
 // ── Device Login (GitHub OAuth Device Flow) ──
 let deviceSessionId = null;
@@ -1073,6 +954,7 @@ async function pollDeviceLogin() {
       document.getElementById('device-done-name').textContent = data.token_name;
       document.getElementById('device-done-user').textContent = data.username || 'unknown';
       await loadTokenData();
+      provisionQuickstart(data.token_name);
       return;
     }
     if (data.status === 'expired') {
@@ -1102,15 +984,53 @@ async function copyDeviceCode() {
   } catch { alert('Copy failed'); }
 }
 
+async function provisionQuickstart(tokenName) {
+  const loading = document.getElementById('device-quickstart-loading');
+  const body = document.getElementById('device-quickstart-body');
+  const err = document.getElementById('device-quickstart-err');
+  loading.style.display = '';
+  body.style.display = 'none';
+  err.style.display = 'none';
+  try {
+    const r = await fetch('/admin/quickstart-key', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ token_name: tokenName }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+    const claudeCmd = `export ANTHROPIC_BASE_URL=${data.base_url} ANTHROPIC_AUTH_TOKEN=${data.key}\nclaude`;
+    const openaiCmd = `export OPENAI_BASE_URL=${data.base_url}/v1 OPENAI_API_KEY=${data.key}`;
+    document.getElementById('device-qs-key').textContent = data.key;
+    document.getElementById('device-qs-claude').textContent = claudeCmd;
+    document.getElementById('device-qs-openai').textContent = openaiCmd;
+    const snippets = { key: data.key, claude: claudeCmd, openai: openaiCmd };
+    document.querySelectorAll('#device-quickstart-body [data-qs-copy]').forEach(btn => {
+      btn.onclick = async () => {
+        try {
+          await navigator.clipboard.writeText(snippets[btn.dataset.qsCopy]);
+          const toast = document.getElementById('device-qs-toast');
+          toast.style.display = '';
+          setTimeout(() => { toast.style.display = 'none'; }, 1500);
+        } catch { alert('Copy failed'); }
+      };
+    });
+    loading.style.display = 'none';
+    body.style.display = '';
+  } catch (e) {
+    loading.style.display = 'none';
+    err.textContent = 'Failed to provision key: ' + e.message;
+    err.style.display = '';
+  }
+}
+
 // ---- Init ----
 refresh();
 loadTokenData();
-loadApiKeys();
 startTimer();
 // reload charts when visible, and periodically
-setInterval(() => { if (currentTab === 'charts') loadCharts(); }, 30000);
-// Also refresh API key usage on settings tab
-setInterval(() => { if (currentTab === 'settings') loadApiKeys(); }, 5000);
+setInterval(() => { if (currentTab === 'usage') { loadOverview(); loadCharts(); } }, 30000);
 
 // ── Mobile Touch Enhancements ──
 function initMobileOptimizations() {
@@ -1454,8 +1374,8 @@ function v2RenderKeys() {
       planCell = `<span style="color:var(--text-4)">免费</span>`;
     }
     const planBtn = planActive
-      ? `<button class="btn" onclick="v2CancelPlan('${k.key_hash}','${escapeAttr(k.name)}')">⏰取消月卡</button>`
-      : `<button class="btn" onclick="v2GrantPlan('${k.key_hash}','${escapeAttr(k.name)}')">🎁开通月卡</button>`;
+      ? `<button class="btn" onclick="v2CancelPlan('${k.key_hash}','${escapeAttr(k.name)}')"><i data-lucide="alarm-clock" class="lucide-icon"></i> 取消月卡</button>`
+      : `<button class="btn" onclick="v2GrantPlan('${k.key_hash}','${escapeAttr(k.name)}')"><i data-lucide="gift" class="lucide-icon"></i> 开通月卡</button>`;
     const main = `<tr class="keys-row" data-hash="${k.key_hash}" style="cursor:pointer" onclick="v2ToggleExpand('${k.key_hash}', event)">
         <td>${k.wx && (k.wx.nickname || k.wx.avatar_url) ? `${k.wx.avatar_url ? `<img src="${escapeAttr(k.wx.avatar_url)}" referrerpolicy="no-referrer" style="width:18px;height:18px;border-radius:50%;vertical-align:middle;margin-right:4px;object-fit:cover">` : ''}<span style="vertical-align:middle">${escapeHTML(k.wx.nickname || k.name || '-')}</span><div style="font-size:10px;color:var(--text-4);margin-top:2px">${escapeHTML(k.name || '-')}</div>` : escapeHTML(k.name || '-')}${k.note ? `<div style="font-size:10px;color:var(--text-4)">${escapeHTML(k.note)}</div>` : ''}</td>
         <td><code style="font-size:11px">${escapeHTML(k.key_prefix || '')}…</code></td>
@@ -1469,11 +1389,8 @@ function v2RenderKeys() {
         <td style="font-size:11px;color:var(--text-4)">${escapeHTML((k.created_at || '').slice(0, 16))}</td>
         <td style="white-space:nowrap" onclick="event.stopPropagation()">
           <button class="btn" onclick="v2OpenTopupModal('${k.key_hash}','${escapeAttr(k.name)}')">Topup</button>
-          <button class="btn" onclick="v2OpenQuotaModal('${k.key_hash}')">Quota</button>
-          <button class="btn" onclick="v2ResetFree('${k.key_hash}')">Reset</button>
-          <button class="btn" onclick="v2ToggleUnlimited('${k.key_hash}', ${k.unlimited ? 1 : 0})">${k.unlimited ? '✓Unlim' : 'Unlim'}</button>
-          ${planBtn}
           ${k.status === 'active' ? `<button class="btn" onclick="v2Disable('${k.key_hash}')">Disable</button>` : `<button class="btn on" onclick="v2Enable('${k.key_hash}')">Enable</button>`}
+          <button class="btn" title="Manage" onclick="v2OpenManageModal('${k.key_hash}')"><i data-lucide="settings" class="lucide-icon"></i></button>
         </td>
       </tr>`;
     if (!expanded) return main;
@@ -1482,6 +1399,7 @@ function v2RenderKeys() {
   tbody.innerHTML = html;
 
   if (v2ExpandedHash) v2LoadLedger(v2ExpandedHash);
+  if (window.lucide) lucide.createIcons();
 }
 
 function v2ToggleExpand(hash, ev) {
@@ -1598,6 +1516,139 @@ async function v2Enable(hash) {
   v2LoadKeys();
 }
 
+// ── Manage Key Modal ──────────────────────────────────────────────────────
+function v2OpenManageModal(hash) {
+  const k = v2Keys.find(x => x.key_hash === hash);
+  if (!k) return;
+  document.getElementById('v2m-hash').value = hash;
+  document.getElementById('v2m-prefix').textContent = (k.key_prefix || '') + '…';
+  document.getElementById('v2m-name').value = k.name || '';
+  document.getElementById('v2m-note').value = k.note || '';
+  document.getElementById('v2m-role').value = k.role || 'user';
+  v2mRefreshDynamic(k);
+  document.getElementById('v2-manage-modal').classList.add('open');
+}
+function v2CloseManageModal() { document.getElementById('v2-manage-modal').classList.remove('open'); }
+
+function v2mRefreshDynamic(k) {
+  const freeTxt = k.unlimited
+    ? '∞ (unlimited)'
+    : `${fmt(k.free_used || 0)} / ${fmt(k.free_quota || 0)}`;
+  document.getElementById('v2m-free-display').textContent = freeTxt;
+
+  document.getElementById('v2m-unlim-display').textContent = k.unlimited ? 'YES — bypasses quota' : 'no';
+  const ub = document.getElementById('v2m-unlim-btn');
+  ub.textContent = k.unlimited ? 'Disable Unlim' : 'Enable Unlim';
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  const planActive = k.plan_type && k.plan_type !== 'free' && Number(k.plan_expires_at || 0) > nowSec;
+  const pd = document.getElementById('v2m-plan-display');
+  const pb = document.getElementById('v2m-plan-btn');
+  pd.textContent = '';
+  if (planActive) {
+    const remainDays = Math.max(0, Math.ceil((Number(k.plan_expires_at) - nowSec) / 86400));
+    const span = document.createElement('span');
+    span.style.color = 'var(--accent-bright)';
+    span.textContent = '包月畅用';
+    pd.appendChild(span);
+    pd.appendChild(document.createTextNode(` · 剩余 ${remainDays} 天`));
+    pb.innerHTML = '<i data-lucide="alarm-clock" class="lucide-icon"></i> 取消月卡';
+    pb.dataset.action = 'cancel';
+  } else {
+    pd.textContent = '免费档';
+    pb.innerHTML = '<i data-lucide="gift" class="lucide-icon"></i> 开通月卡';
+    pb.dataset.action = 'grant';
+  }
+  if (window.lucide) lucide.createIcons();
+}
+
+async function v2mReloadCurrent() {
+  const hash = document.getElementById('v2m-hash').value;
+  if (!hash) return;
+  await v2LoadKeys();
+  const k = v2Keys.find(x => x.key_hash === hash);
+  if (k) v2mRefreshDynamic(k);
+}
+
+async function v2mResetFree() {
+  const hash = document.getElementById('v2m-hash').value;
+  if (!confirm('Reset free_used to 0?')) return;
+  const r = await fetch(`/admin/keys/${hash}/reset-free`, { method: 'POST', credentials: 'include' });
+  if (!r.ok) { alert('reset failed: HTTP ' + r.status); return; }
+  await v2mReloadCurrent();
+}
+
+async function v2mToggleUnlim() {
+  const hash = document.getElementById('v2m-hash').value;
+  const k = v2Keys.find(x => x.key_hash === hash);
+  if (!k) return;
+  const next = k.unlimited ? 0 : 1;
+  const r = await fetch(`/admin/keys/${hash}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ unlimited: next }) });
+  if (!r.ok) { alert('toggle failed: HTTP ' + r.status); return; }
+  await v2mReloadCurrent();
+}
+
+async function v2mPlanAction() {
+  const hash = document.getElementById('v2m-hash').value;
+  const k = v2Keys.find(x => x.key_hash === hash);
+  if (!k) return;
+  const action = document.getElementById('v2m-plan-btn').dataset.action;
+  if (action === 'cancel') {
+    if (!confirm(`确认取消 "${k.name}" 的包月套餐？将立即降级为免费档。`)) return;
+    const r = await fetch(`/admin/keys/${hash}/plan/cancel`, { method: 'POST', credentials: 'include' });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { alert('cancel failed: ' + (j.error || r.status)); return; }
+  } else {
+    const ans = prompt(`开通包月套餐给 "${k.name}"，输入天数 (默认 30):`, '30');
+    if (ans === null) return;
+    const days = Number(ans);
+    if (!Number.isFinite(days) || days <= 0) { alert('invalid days'); return; }
+    const r = await fetch(`/admin/keys/${hash}/plan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ plan_type: 'monthly_29', days }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { alert('grant failed: ' + (j.error || r.status)); return; }
+  }
+  await v2mReloadCurrent();
+}
+
+async function v2mHardDelete() {
+  const hash = document.getElementById('v2m-hash').value;
+  const k = v2Keys.find(x => x.key_hash === hash);
+  if (!k) return;
+  if (!confirm(`PERMANENTLY delete key "${k.name}"?\n\nThis removes the key row and its usage ledger. Cannot be undone.`)) return;
+  const typed = prompt(`Type the key name to confirm deletion:`);
+  if (typed !== k.name) { alert('name did not match; aborted'); return; }
+  const r = await fetch(`/admin/keys/${hash}?hard=1`, { method: 'DELETE', credentials: 'include' });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { alert('delete failed: ' + (j.error || r.status)); return; }
+  v2CloseManageModal();
+  v2LoadKeys();
+}
+
+async function v2SubmitManageModal() {
+  const hash = document.getElementById('v2m-hash').value;
+  const k = v2Keys.find(x => x.key_hash === hash);
+  if (!k) return;
+  const name = document.getElementById('v2m-name').value.trim();
+  if (!name) { alert('name required'); return; }
+  const note = document.getElementById('v2m-note').value.trim();
+  const role = document.getElementById('v2m-role').value;
+  const patch = {};
+  if (name !== (k.name || '')) patch.name = name;
+  if (note !== (k.note || '')) patch.note = note || null;
+  if (role !== k.role) patch.role = role;
+  if (!Object.keys(patch).length) { v2CloseManageModal(); return; }
+  const r = await fetch(`/admin/keys/${hash}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(patch) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { alert('save failed: ' + (j.error || r.status)); return; }
+  v2CloseManageModal();
+  v2LoadKeys();
+}
+
 // ─── Usage Overview tab ─────────────────────────────────────────────────────
 function _ovRange() {
   const r = document.getElementById('ov-range').value;
@@ -1641,13 +1692,81 @@ async function loadOverview() {
     document.getElementById('ov-bymodel').innerHTML = byModelRows;
 
     const daily = j.daily || [];
-    const maxCost = Math.max(1, ...daily.map(d => d.cost || 0));
-    const dailyRows = daily.map(d => {
-      const w = Math.max(2, Math.round((d.cost || 0) / maxCost * 100));
-      return `<tr><td>${escapeHTML(d.day)}</td><td>${fmt(d.requests)}</td><td>${fmt(d.cost)}</td><td><div style="height:10px;width:${w}%;background:var(--accent-bright);border-radius:2px"></div></td></tr>`;
-    }).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--text-4)">no data</td></tr>';
-    document.getElementById('ov-daily').innerHTML = dailyRows;
+    drawDailyCostChart(daily);
+    if (window.lucide) lucide.createIcons();
   } catch (e) { alert('overview failed: ' + e.message); }
+}
+
+function drawDailyCostChart(daily) {
+  const canvas = document.getElementById('chart-daily-cost');
+  if (!canvas) return;
+  const cssW = canvas.clientWidth || canvas.parentElement.clientWidth || 600;
+  const cssH = 200;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = cssW * dpr;
+  canvas.height = cssH * dpr;
+  canvas.style.height = cssH + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+
+  if (!daily.length) {
+    ctx.font = '12px Inter, system-ui';
+    ctx.fillStyle = COLORS.label;
+    ctx.textAlign = 'center';
+    ctx.fillText('no data', cssW / 2, cssH / 2);
+    return;
+  }
+
+  const pad = { l: 44, r: 12, t: 14, b: 22 };
+  const innerW = cssW - pad.l - pad.r;
+  const innerH = cssH - pad.t - pad.b;
+  const maxCost = Math.max(1, ...daily.map(d => Number(d.cost) || 0));
+  const n = daily.length;
+  const xAt = i => pad.l + (n === 1 ? innerW / 2 : (innerW * i) / (n - 1));
+  const yAt = v => pad.t + innerH * (1 - v / maxCost);
+
+  ctx.strokeStyle = COLORS.grid; ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.t + (innerH * i) / 4;
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(cssW - pad.r, y); ctx.stroke();
+    ctx.font = '10px Inter, system-ui';
+    ctx.fillStyle = COLORS.label;
+    ctx.textAlign = 'right';
+    ctx.fillText(fmt(Math.round(maxCost * (1 - i / 4))), pad.l - 6, y + 3);
+  }
+
+  ctx.strokeStyle = COLORS.accent; ctx.lineWidth = 2; ctx.beginPath();
+  daily.forEach((d, i) => {
+    const x = xAt(i), y = yAt(Number(d.cost) || 0);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  const grad = ctx.createLinearGradient(0, pad.t, 0, pad.t + innerH);
+  grad.addColorStop(0, 'rgba(113,112,255,0.25)');
+  grad.addColorStop(1, 'rgba(113,112,255,0)');
+  ctx.fillStyle = grad; ctx.beginPath();
+  ctx.moveTo(xAt(0), pad.t + innerH);
+  daily.forEach((d, i) => ctx.lineTo(xAt(i), yAt(Number(d.cost) || 0)));
+  ctx.lineTo(xAt(n - 1), pad.t + innerH);
+  ctx.closePath(); ctx.fill();
+
+  ctx.fillStyle = COLORS.accent;
+  daily.forEach((d, i) => {
+    ctx.beginPath();
+    ctx.arc(xAt(i), yAt(Number(d.cost) || 0), 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  ctx.font = '10px Inter, system-ui';
+  ctx.fillStyle = COLORS.label;
+  ctx.textAlign = 'center';
+  const stride = Math.max(1, Math.ceil(n / 8));
+  daily.forEach((d, i) => {
+    if (i % stride !== 0 && i !== n - 1) return;
+    ctx.fillText((d.day || '').slice(5), xAt(i), cssH - 6);
+  });
 }
 
 // ─── Models tab ─────────────────────────────────────────────────────────────
@@ -1674,7 +1793,7 @@ async function loadModels() {
     }
     const rows = j.models || [];
     if (!rows.length) {
-      _setHTML(tbody, '<tr><td colspan="8" style="text-align:center;color:var(--text-4)">no models — click 🔄 to sync from upstream</td></tr>');
+      _setHTML(tbody, '<tr><td colspan="8" style="text-align:center;color:var(--text-4)">no models — click <i data-lucide="refresh-cw" class="lucide-icon"></i> to sync from upstream</td></tr>');
       return;
     }
     const def = j.default_pricing || { input_multiplier: 1, output_multiplier: 5 };
@@ -1693,11 +1812,14 @@ async function loadModels() {
         <td><input type="number" id="md-out-${safeId}" value="${p.output_multiplier}" step="0.01" min="0" class="token-input" style="width:100px"></td>
         <td style="white-space:nowrap">
           <button class="btn on" onclick="saveModelRow('${escapeAttr(m.id)}','${safeId}')">Save</button>
+          <button class="btn" onclick="testModelRow('${escapeAttr(m.id)}','${safeId}')" id="md-test-${safeId}">Test</button>
+          <span id="md-test-result-${safeId}" style="margin-left:6px;font-size:11px"></span>
           ${m.enabled ? '' : `<button class="btn" onclick="deleteModelRow('${escapeAttr(m.id)}')">Delete</button>`}
         </td>
       </tr>`;
     }).join('');
     _setHTML(tbody, html);
+    if (window.lucide) lucide.createIcons();
   } catch (e) {
     _setHTML(tbody, `<tr><td colspan="8" style="color:var(--c-red);text-align:center">${escapeHTML(e.message)}</td></tr>`);
   }
@@ -1705,7 +1827,7 @@ async function loadModels() {
 
 async function syncModelsFromUpstream() {
   const btn = document.getElementById('models-sync-btn');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ 同步中…'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader" class="lucide-icon"></i> 同步中…'; if (window.lucide) lucide.createIcons(); }
   try {
     const r = await fetch('/admin/models/sync', { method: 'POST', credentials: 'include' });
     const j = await r.json().catch(() => ({}));
@@ -1718,7 +1840,7 @@ async function syncModelsFromUpstream() {
   } catch (e) {
     _toast(`同步失败: ${e.message}`, 'err');
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '🔄 刷新模型列表'; }
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="refresh-cw" class="lucide-icon"></i> 刷新模型列表'; if (window.lucide) lucide.createIcons(); }
   }
 }
 
@@ -1743,6 +1865,35 @@ async function saveModelRow(modelId, safeId) {
   if (!r.ok) { const j = await r.json().catch(() => ({})); _toast(`save failed: ${j.error || r.status}`, 'err'); return; }
   _toast(`✓ saved ${modelId}`, 'ok');
   loadModels();
+}
+
+async function testModelRow(modelId, safeId) {
+  const btn = document.getElementById(`md-test-${safeId}`);
+  const out = document.getElementById(`md-test-result-${safeId}`);
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader" class="lucide-icon"></i>'; if (window.lucide) lucide.createIcons(); }
+  if (out) { out.textContent = ''; out.style.color = ''; }
+  try {
+    const r = await fetch(`/admin/models/${encodeURIComponent(modelId)}/test`, {
+      method: 'POST', credentials: 'include',
+    });
+    const j = await r.json().catch(() => ({}));
+    if (out) {
+      if (j.ok) {
+        out.style.color = 'var(--c-green, #2a8)';
+        out.textContent = `✓ ${j.latency_ms}ms${j.sample ? ` — ${j.sample.replace(/\s+/g, ' ').slice(0, 40)}` : ''}`;
+        out.title = j.sample || '';
+      } else {
+        out.style.color = 'var(--c-red, #d33)';
+        const err = (j.error || `HTTP ${j.status || r.status}`).toString();
+        out.textContent = `✗ ${err.slice(0, 60)}`;
+        out.title = err;
+      }
+    }
+  } catch (e) {
+    if (out) { out.style.color = 'var(--c-red, #d33)'; out.textContent = `✗ ${e.message}`; }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Test'; }
+  }
 }
 
 async function deleteModelRow(modelId) {
