@@ -129,8 +129,25 @@ async function handleRequest(req, res) {
     || req.url.startsWith("/api/wx/payment-webhook")
     || req.url.startsWith("/api/pay/create");
   const __reqOrigin = (req.headers["origin"] || "").toString();
+  // Same-origin check: browsers send Origin even for same-origin fetches.
+  // If Origin host == request Host, treat as same-origin (no CORS needed).
+  const __reqHost = (req.headers["host"] || "").toString();
+  let __isSameOrigin = false;
+  if (__reqOrigin && __reqHost) {
+    try {
+      const u = new URL(__reqOrigin);
+      __isSameOrigin = u.host === __reqHost;
+    } catch {}
+  }
   if (__publicPath) {
     res.setHeader("Access-Control-Allow-Origin", "*");
+  } else if (__isSameOrigin || isLoopbackRequest(req)) {
+    // Same-origin browser fetch, or loopback caller — pass through without CORS headers.
+    if (__reqOrigin) {
+      res.setHeader("Access-Control-Allow-Origin", __reqOrigin);
+      res.setHeader("Vary", "Origin");
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+    }
   } else {
     const allowed = (process.env.CORS_ORIGINS || "")
       .split(",").map(s => s.trim()).filter(Boolean);
