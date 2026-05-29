@@ -2,6 +2,8 @@
 
 本地 / 自托管的 **GitHub Copilot → Anthropic Messages API 网关**，自带多 Key 管理与用量看板。
 
+> 🤖 给 AI agent 接管：见 [AGENTS.md](AGENTS.md)
+
 把 GitHub Copilot 的额度暴露成标准 Anthropic / OpenAI 兼容接口，给 Claude Code、OpenClaw 等客户端直接用。
 
 ## 5 分钟跑起来
