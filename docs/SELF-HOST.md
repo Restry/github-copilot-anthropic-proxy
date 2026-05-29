@@ -1,5 +1,7 @@
 # 自部署指南
 
+> 💡 用 Claude Code / Cursor 等 AI 编程助手？直接对它说「加载这个仓库，本地部署」，agent 会读 [AGENTS.md](../AGENTS.md) 自动跑完并给你使用命令。
+
 把这份 proxy 跑起来有两种姿势：
 
 - **本地跑**（推荐 · 5 分钟）：自己机器上 `node server.mjs`，免登进 dashboard，直接给本机的 Claude Code 用。
