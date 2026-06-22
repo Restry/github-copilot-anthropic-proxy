@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { PORT, COPILOT_TOKEN_URL, DASHBOARD_PATH, PUBLIC_DIR, API_KEYS_PATH, DB_PATH, __DIR, fullError, mask, cst } from "./lib/utils.mjs";
 import { loadApiKeys, saveApiKeys } from "./lib/api-keys.mjs";
 import { checkRateLimit, recordRequest, recordTokenUsage, getKeyUsageStats, getRateLimitCounters, pruneCounters } from "./lib/rate-limit.mjs";
-import { loadTokens, saveTokens, getTokenType, maskToken, clearCachedToken, getActiveGitHubToken, deriveBaseUrl, exchangeGitHubToken, getTokenByName, getToken, getCachedTokenInfo } from "./lib/tokens.mjs";
+import { loadTokens, saveTokens, getTokenType, maskToken, clearCachedToken, getActiveGitHubToken, deriveBaseUrl, exchangeGitHubToken, getTokenByName, getToken, getCachedTokenInfo, getTokenLB, markTokenUnhealthy, getTokenStats } from "./lib/tokens.mjs";
 import { checkApiKey, checkAdmin, checkUserSession, createUserSession, destroyUserSession, getUserSessionContext, getInternalTestToken, LOCALHOST_BYPASS_ENABLED, isLoopbackRequest } from "./lib/auth.mjs";
 import { db, addLog, recordAdminAction, listAdminActions, recordWebhookNonce, sweepWebhookNonces } from "./lib/database.mjs";
 import { MODEL_REGISTRY, isClaudeModel, summarizeChatRequest, extractUsageNonStream, extractUsageStream, extractResponsesUsageNonStream, extractResponsesUsageStream, getModelRegistry } from "./lib/openai-protocol.mjs";
@@ -657,10 +657,10 @@ async function handleRequest(req, res) {
     const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
 
     const logs = db.prepare(`SELECT l.id, l.ts, l.model, l.status, l.duration_ms, l.stream, l.input_tokens, l.output_tokens, l.preview, l.request_summary, l.error, l.token_name, l.api_key_name,
-      json_extract(l.request_body, '$.reasoning_effort') AS r_effort1,
-      json_extract(l.request_body, '$.reasoning.effort') AS r_effort2,
-      json_extract(l.request_body, '$.thinking.type') AS r_think_type,
-      json_extract(l.request_body, '$.thinking.budget_tokens') AS r_think_budget,
+      CASE WHEN json_valid(l.request_body) THEN json_extract(l.request_body, '$.reasoning_effort') END AS r_effort1,
+      CASE WHEN json_valid(l.request_body) THEN json_extract(l.request_body, '$.reasoning.effort') END AS r_effort2,
+      CASE WHEN json_valid(l.request_body) THEN json_extract(l.request_body, '$.thinking.type') END AS r_think_type,
+      CASE WHEN json_valid(l.request_body) THEN json_extract(l.request_body, '$.thinking.budget_tokens') END AS r_think_budget,
       w.nickname AS wx_nickname, w.avatar_url AS wx_avatar_url
       FROM logs l
       LEFT JOIN api_keys_v2 k ON k.key_hash = l.key_hash
@@ -1231,7 +1231,7 @@ async function handleRequest(req, res) {
     const boundTokenName = apiKeyCheck.tokenName;
     const { token, baseUrl, tokenName } = boundTokenName
       ? await getTokenByName(boundTokenName)
-      : await getToken();
+      : await getTokenLB();
     logEntry.tokenName = tokenName;
 
     const chunks = [];
@@ -2210,7 +2210,7 @@ async function handleChatCompletions(req, res) {
     const boundTokenName = apiKeyCheck.tokenName;
     const { token, baseUrl, tokenName } = boundTokenName
       ? await getTokenByName(boundTokenName)
-      : await getToken();
+      : await getTokenLB();
     logEntry.tokenName = tokenName;
 
     const chunks = [];
@@ -2413,7 +2413,7 @@ async function handleResponses(req, res) {
     const boundTokenName = apiKeyCheck.tokenName;
     const { token, baseUrl, tokenName } = boundTokenName
       ? await getTokenByName(boundTokenName)
-      : await getToken();
+      : await getTokenLB();
     logEntry.tokenName = tokenName;
 
     const chunks = [];

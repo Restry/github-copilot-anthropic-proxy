@@ -1525,10 +1525,35 @@ function v2OpenManageModal(hash) {
   document.getElementById('v2m-name').value = k.name || '';
   document.getElementById('v2m-note').value = k.note || '';
   document.getElementById('v2m-role').value = k.role || 'user';
+  v2mPopulateTokenSelect(k.token_name || '');
   v2mRefreshDynamic(k);
   document.getElementById('v2-manage-modal').classList.add('open');
 }
 function v2CloseManageModal() { document.getElementById('v2-manage-modal').classList.remove('open'); }
+
+async function v2mPopulateTokenSelect(current) {
+  const sel = document.getElementById('v2m-token-name');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">— 不绑定 (use active) —</option>';
+  try {
+    const r = await fetch('/api/tokens', { credentials: 'include' });
+    if (!r.ok) return;
+    const j = await r.json();
+    const tokens = j.tokens || j || [];
+    for (const t of tokens) {
+      const opt = document.createElement('option');
+      opt.value = t.name;
+      opt.textContent = t.name + (t.active ? ' (active)' : '') + (t.username ? ' — ' + t.username : '');
+      if (t.name === current) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    if (current && !tokens.find(t => t.name === current)) {
+      const opt = document.createElement('option');
+      opt.value = current; opt.textContent = current + ' (missing)'; opt.selected = true;
+      sel.appendChild(opt);
+    }
+  } catch (e) { /* keep default */ }
+}
 
 function v2mRefreshDynamic(k) {
   const freeTxt = k.unlimited
@@ -1637,10 +1662,12 @@ async function v2SubmitManageModal() {
   if (!name) { alert('name required'); return; }
   const note = document.getElementById('v2m-note').value.trim();
   const role = document.getElementById('v2m-role').value;
+  const tokenName = document.getElementById('v2m-token-name').value;
   const patch = {};
   if (name !== (k.name || '')) patch.name = name;
   if (note !== (k.note || '')) patch.note = note || null;
   if (role !== k.role) patch.role = role;
+  if (tokenName !== (k.token_name || '')) patch.token_name = tokenName || null;
   if (!Object.keys(patch).length) { v2CloseManageModal(); return; }
   const r = await fetch(`/admin/keys/${hash}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(patch) });
   const j = await r.json().catch(() => ({}));
