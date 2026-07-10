@@ -1285,7 +1285,7 @@ async function handleRequest(req, res) {
       const lastMsg = parsed.messages?.[msgCount - 1];
       const lastContent = typeof lastMsg?.content === "string" ? lastMsg.content : lastMsg?.content?.map(b => b.text || "").join("") || "";
       logEntry.preview = lastContent.slice(0, 80);
-      logEntry.requestSummary = `model=${parsed.model} stream=${!!parsed.stream} msgs=${msgCount} sys=${sysLen}chars max_tokens=${parsed.max_tokens || "-"}\n\nLast message (${lastMsg?.role}):\n${lastContent.slice(0, 500)}`;
+      logEntry.requestSummary = `model=${parsed.model} stream=${!!parsed.stream} msgs=${msgCount} sys=${sysLen}chars max_tokens=${parsed.max_tokens || "-"}\n\nLast message (${lastMsg?.role}):\n${lastContent}`;
 
       const sanitize = (val) => {
         if (Array.isArray(val)) { val.forEach(sanitize); return; }

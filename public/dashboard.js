@@ -429,6 +429,26 @@ async function openDetail(id) {
     ).join('');
 
     if (tab === 'overview') {
+      // Prefer full last-message text from request_body (works for old logs too);
+      // fall back to the stored request_summary if body is missing.
+      let summaryText = detail.request_summary || '';
+      if (detail.request_body) {
+        try {
+          const parsed = JSON.parse(detail.request_body);
+          const msgs = parsed.messages || [];
+          const last = msgs[msgs.length - 1];
+          let lastContent = '';
+          if (typeof last?.content === 'string') lastContent = last.content;
+          else if (Array.isArray(last?.content)) lastContent = last.content.map(b => b?.text || '').join('');
+          const sysLen = Array.isArray(parsed.system)
+            ? parsed.system.reduce((s, b) => s + (b?.text?.length || 0), 0)
+            : (parsed.system?.length || 0);
+          const toolsCount = parsed.tools?.length || 0;
+          summaryText = `model=${parsed.model} stream=${!!parsed.stream} msgs=${msgs.length}`
+            + ` sys=${sysLen}chars max_tokens=${parsed.max_tokens || parsed.max_completion_tokens || '-'}`
+            + ` tools=${toolsCount}\n\nLast message (${last?.role}):\n${lastContent}`;
+        } catch {}
+      }
       body.innerHTML = `
         <div class="drawer-meta">
           <span class="drawer-meta-k">Time</span><span class="drawer-meta-v">${esc(detail.ts)}</span>
@@ -441,7 +461,7 @@ async function openDetail(id) {
           <span class="drawer-meta-k">Output Tok</span><span class="drawer-meta-v">${fmt(detail.output_tokens||0)}</span>
         </div>
         ${detail.error ? `<div class="detail-body has-error"><div class="detail-error-label">Error</div><pre>${esc(detail.error)}</pre></div>` : ''}
-        ${detail.request_summary ? `<div class="detail-body"><div class="detail-req-label">Summary</div><pre>${esc(detail.request_summary)}</pre></div>` : ''}
+        ${summaryText ? `<div class="detail-body"><div class="detail-req-label">Summary</div><pre>${esc(summaryText)}</pre></div>` : ''}
       `;
     } else if (tab === 'request') {
       let formatted = detail.request_body;

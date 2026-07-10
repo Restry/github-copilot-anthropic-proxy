@@ -376,7 +376,7 @@ body::before {
   white-space: pre-wrap; word-break: break-all;
   font-family: var(--mono); font-size: 11px;
   color: var(--text-3); line-height: 1.7;
-  max-height: 300px; overflow-y: auto;
+  max-height: none;
 }
 .detail-body.has-error {
   border-color: rgba(239,95,95,0.25);
