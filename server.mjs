@@ -1772,7 +1772,8 @@ async function handleAdmin(req, res, adminCtx = { source: "unknown", adminKeyHas
     const isAnthropic = vendor.includes("anthropic") || /^claude-/i.test(id);
     const isGoogle = vendor.includes("google") || /^gemini-/i.test(id);
     // gpt-5.x new models only accessible via /v1/responses (reject /chat/completions)
-    const isResponses = /^gpt-5\.(2|2-codex|3-codex|4|4-mini|5)$/i.test(id);
+    // Broadened: any gpt-5.2+ variant (5.2, 5.3-codex, 5.4, 5.5, 5.6-terra, future 5.7…).
+    const isResponses = /^gpt-5\.[2-9]/i.test(id);
     const endpoint = isAnthropic ? "/v1/messages" : (isResponses ? "/v1/responses" : "/v1/chat/completions");
     const body = isAnthropic
       ? { model: id, max_tokens: 16, messages: [{ role: "user", content: "ping" }] }
